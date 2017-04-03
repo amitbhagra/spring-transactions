@@ -1,0 +1,212 @@
+Transaction Management: Important part of RDBMS oriented enterprise applications to ensure data integrity and consistency
+Problems in DB if Transactions are not used -> Inconsistent Data
+
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+*** How to enable Transaction Management in JDBC
+Enable JDBC Transactions (JDBC Specific )
+	
+	connection.setAutoCommit(false);
+	// Statements
+	connection.commit()
+
+	If a SQLException comes
+		connection.rollback()
+
+
+Problem in this -> Boilerplate code, JDBC specific we need general approach
+
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+Spring’s Transaction Management: Theory
+
+	Spring provides an abstract TransactionManagement layer. 
+	Supports both programmatic and declarative transactions
+	Support offers a set of technology-independent facilities, including 
+transaction managers (e.g., org.springframework.transaction.PlatformTransactionManager), 
+a transaction template (e.g., org.springframework.transaction.support.TransactionTemplate), 
+and transaction declaration support to simplify your transaction management tasks
+
+	Programmatic TM: Through Code: Difficult to Maintain
+	Declarative TM: Separate TM from Business Logic. Use of Annotations or XML Based mappings. 
+					Supported as a cross cutting concern through Spring AOP framework
+
+Transaction Abstractions : Defined as following interface
+
+public interface PlatformTransactionManager {
+	TransactionStatus getTransaction(TransactionDefinition definition);
+	throws TransactionException;
+	void commit(TransactionStatus status) throws TransactionException;
+	void rollback(TransactionStatus status) throws TransactionException;
+}
+
+
+The TransactionDefinition is the core interface of the transaction support in Spring 
+// Specifies Transaction specific properties like propagation and isolation
+
+How to choose a Transaction Manager Implementation from Several built in Spring Implementations
+	DataSourceTransactionManager -> SingleDataSource like MySQL	
+	JTATransactionManager -> on java EE servers and for distributed transactions spanning multiple resources
+	HibernateTransactionManager, JPATransactionManager -> for ORM frameworks
+
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+Programmatic Transaction Management
+How to configure
+
+@Bean
+public PlatformTransactionManager transactionManager() {
+	DataSourceTransactionManager transactionManager = new DataSourceTransactionManager()
+	transactionManager.setDataSource(dataSource());
+	return transactionManager;
+}
+
+
+How to use TransactionManager programatically : code in BookShopSpringJDBCTransactionImpl
+
+1. Inject PlatformTransactionManager Implementation into DAO class like DataSourceTransactionManager
+2. Extend Dao with JdbcDaoSupport
+3. At the start of transaction configure transaction type can also choose default
+TransactionDefinition def = new DefaultTransactionDefinition();  // TransactionDefintion specifies propagation and isolation
+TransactionStatus status = transactionManager.getTransaction(def);
+4. Use JDBCTemplate to run queries
+5. After all the queries run transactionManager.commit(status);
+6. Catch DataAccessException and run transactionManager.rollback(status);
+
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+Annotation Driven Transaction Management
+
+How to enable
+
+XML Config
+	<tx:annotation-driven transaction-manager="transactionManager"/> name of the tm bean specified 
+	or <tx:annotation-driven/> if transactionManager name is transactionManager
+
+Java Config
+	@Configuration
+	@EnableTransactionManagement
+	public class BookstoreConfiguration { ... }
+	it isn’t possible to specify which transaction
+	manager to use. When there is only one PlatformTransactionManager in your configuration this will be automatically
+	detected and used for managing transactions
+
+	For the situations where there are multiple PlatformTransactionManagers in your configuration, you have to
+	specify on the @Transactional annotation which of the transaction managers to use for controlling the transaction.
+	For this you can use the value attribute of the @Transactional annotation.
+	 
+	@Transaction("transaction-manager-1")
+	public void transactionalMethod() { ... }
+	 
+	@Transaction("transaction-manager-2")
+	public void otherTransactionalMethod() { ... } 
+
+
+
+How to Use
+Use @Transactional at Method or class Level
+
+	You may apply the @Transactional annotation at the method level or the class level. When applying this
+annotation to a class, all of the public methods within this class will be defined as transactional. Although you can
+apply @Transactional to interfaces or method declarations in an interface, it’s not recommended because it may not
+work properly with class-based proxies (i.e., CGLIB proxies)
+
+Default Transaction Properties defined in DefaultTransactionDefinition
+
+private int propagationBehavior = PROPAGATION_REQUIRED;
+private int isolationLevel = ISOLATION_DEFAULT; // READ_COMMITTED
+private int timeout = TIMEOUT_DEFAULT; // -1
+private boolean readOnly = false;
+
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+***Setting the Propagation Transaction Attribute
+Transaction Propagations of a method on being called by other method
+Type						Action if a Transaction exists						Action if a Transaction does not exist
+REQUIRED					run within this transaction							start a new transaction and run within it
+REQUIRES_NEW  				suspend old transaction, start a new transaction	start a new transaction and run within it
+							and run within it
+
+MANDATORY					run within this transaction							throw exception
+NEVER						throw Exception										should not run in any transaction
+
+SUPPORTS 					run within this transaction							can run without a transaction
+NOT_SUPPORTED				suspend old transaction, run this method without	should not run within a transaction 
+							a transaction
+
+NESTED 						The method should always run in a nested 			start a new transaction and run within its 
+							transaction of old transaction						own transaction
+							
+							Nested can be used for batch processing
+
+not all types of transactionmanagers support all of these propagation behaviors. 
+Their behavior is contingent on the underlying resource. Databases, for example, may support 
+varying isolation levels, which constrains what propagation behaviors the transaction manager can support
+
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+Setting Isolation Transaction Attribute
+When multiple transactions of the same application or different applications are operating concurrently on the same
+dataset
+
+•	 Dirty read: For two transactions T1 and T2, T1 reads a field that has been updated by T2 but
+not yet committed. Later, if T2 rolls back, the field read by T1 will be temporary and invalid.
+•	 Nonrepeatable read: For two transactions T1 and T2, T1 reads a field and then T2 updates the
+field. Later, if T1 reads the same field again, the value will be different.
+•	 Phantom read: For two transactions T1 and T2, T1 reads some rows from a table and then
+T2 inserts new rows into the table. Later, if T1 reads the same table again, there will be
+additional rows.
+•	 Lost updates: For two transactions T1 and T2, they both select a row for update, and based on
+the state of that row, make an update to it. Thus, one overwrites the other when the second
+transaction to commit should have waited until the first one committed before performing its
+selection
+
+In theory, transactions should be completely isolated from each other (i.e., serializable) to avoid all the
+mentioned problems. However, this isolation level will have great impact on performance, because transactions have
+to run in serial order. In practice, transactions can run in lower isolation levels in order to improve performance
+
+
+DEFAULT Uses the default isolation level of the underlying database. For most databases, the default
+isolation level is READ_COMMITTED.
+READ_UNCOMMITTED Allows a transaction to read uncommitted changes by other transactions. The dirty read,
+nonrepeatable read, and phantom read problems may occur.
+READ_COMMITTED Allows a transaction to read only those changes that have been committed by other
+transactions. The dirty read problem can be avoided, but the nonrepeatable read and
+phantom read problems may still occur.
+REPEATABLE_READ Ensures that a transaction can read identical values from a field multiple times. For the
+duration of this transaction, updates made by other transactions to this field are prohibited.
+The dirty read and nonrepeatable read problems can be avoided, but the phantom read
+problem may still occur.
+SERIALIZABLE Ensures that a transaction can read identical rows from a table multiple times. For the
+duration of this transaction, inserts, updates, and deletes made by other transactions to this
+table are prohibited. All the concurrency problems can be avoided, but the performance
+will be low
+
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+Setting the Rollback Transaction Attribute
+
+By default, only unchecked exceptions (i.e., of type RuntimeException and Error) will cause a transaction to roll back,
+while checked exceptions will not
+
+public class JdbcBookShop extends JdbcDaoSupport implements BookShop {
+...
+@Transactional(
+propagation = Propagation.REQUIRES_NEW,
+rollbackFor = IOException.class,
+noRollbackFor = ArithmeticException.class)
+public void purchase(String isbn, String username) throws Exception{
+throw new ArithmeticException();
+//throw new IOException();
+}
+}
+
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+Setting readOnly and timeout
+
+@Transactional(
+timeout = 30, // In seconds
+readOnly = true)
+public int checkStock(String isbn) {
+...
+}
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
